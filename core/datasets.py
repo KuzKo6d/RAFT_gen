@@ -1,4 +1,5 @@
 # Data loading based on https://github.com/NVIDIA/flownet2-pytorch
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import torch
@@ -196,8 +197,48 @@ class HD1K(FlowDataset):
             seq_ix += 1
 
 
+class Generator(FlowDataset):
+    def __init__(self, aug_params=None, split='training', root='datasets/generator_beta'):
+        super(Generator, self).__init__(aug_params)
+
+        image_root = osp.join(root, 'rgb')
+        flow_root = osp.join(image_root, 'gt')
+
+        images = {}
+        for image_path in glob(osp.join(image_root, '*.png')):
+            images[osp.splitext(osp.basename(image_path))[0]] = image_path
+
+        flows = sorted(glob(osp.join(flow_root, '*.flo')))
+        missing_images = []
+
+        for flow_path in flows:
+            stem = osp.splitext(osp.basename(flow_path))[0]
+            try:
+                first, second = stem.split('_', 1)
+            except ValueError:
+                continue
+
+            reverse_stem = '%s_%s' % (second, first)
+            if stem not in images or reverse_stem not in images:
+                missing_images.append(stem)
+                continue
+
+            self.flow_list += [flow_path]
+            self.image_list += [[images[stem], images[reverse_stem]]]
+
+        if len(self.image_list) == 0:
+            raise RuntimeError('No Generator samples found in %s' % root)
+
+        if missing_images:
+            print('Generator: skipped %d flow files without matching rgb pair' % len(missing_images))
+
+
 def fetch_dataloader(args, TRAIN_DS='C+T+K+S+H'):
     """ Create the data loader for the corresponding trainign set """
+
+    if args.stage == 'generator':
+        aug_params = {'crop_size': args.image_size, 'min_scale': -0.4, 'max_scale': 0.8, 'do_flip': True}
+        train_dataset = Generator(aug_params)
 
     if args.stage == 'chairs':
         aug_params = {'crop_size': args.image_size, 'min_scale': -0.1, 'max_scale': 1.0, 'do_flip': True}
@@ -232,4 +273,3 @@ def fetch_dataloader(args, TRAIN_DS='C+T+K+S+H'):
 
     print('Training with %d image pairs' % len(train_dataset))
     return train_loader
-
