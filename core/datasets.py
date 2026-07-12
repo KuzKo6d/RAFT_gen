@@ -101,7 +101,7 @@ class FlowDataset(data.Dataset):
         
 
 class MpiSintel(FlowDataset):
-    def __init__(self, aug_params=None, split='training', root='datasets/Sintel', dstype='clean'):
+    def __init__(self, aug_params=None, split='training', root='../datasets/Sintel', dstype='clean'):
         super(MpiSintel, self).__init__(aug_params)
         flow_root = osp.join(root, split, 'flow')
         image_root = osp.join(root, split, dstype)
@@ -198,7 +198,7 @@ class HD1K(FlowDataset):
 
 
 class Generator(FlowDataset):
-    def __init__(self, aug_params=None, split='training', root='datasets/generator_beta'):
+    def __init__(self, aug_params=None, split='training', root='../datasets/generator_beta'):
         super(Generator, self).__init__(aug_params)
 
         image_root = osp.join(root, 'rgb')

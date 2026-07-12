@@ -22,13 +22,13 @@ def readFlow(fn):
             print('Magic number incorrect. Invalid .flo file')
             return None
         else:
-            w = np.fromfile(f, np.int32, count=1)
-            h = np.fromfile(f, np.int32, count=1)
+            w = int(np.fromfile(f, np.int32, count=1)[0])
+            h = int(np.fromfile(f, np.int32, count=1)[0])
             # print 'Reading %d x %d flo file\n' % (w, h)
-            data = np.fromfile(f, np.float32, count=2*int(w)*int(h))
+            data = np.fromfile(f, np.float32, count=2*w*h)
             # Reshape data into 3D array (columns, rows, bands)
             # The reshape here is for visualization, the original code is (w,h,2)
-            return np.resize(data, (int(h), int(w), 2))
+            return np.resize(data, (h, w, 2))
 
 def readPFM(file):
     file = open(file, 'rb')

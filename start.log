@@ -1,0 +1,40 @@
+> ./train_custom.sh
+Parameter Count: 5257536
+Generator: skipped 125 flow files without matching rgb pair
+Training with 20254 image pairs
+/mnt/ssd1/30k_kuz/RAFT_gen/train.py:154: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated
+  Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = GradScaler(enabled=args.mixed_precision)
+Traceback (most recent call last):
+  File "/mnt/ssd1/30k_kuz/RAFT_gen/train.py", line 248, in <module>
+    train(args)
+    ~~~~~^^^^^^
+  File "/mnt/ssd1/30k_kuz/RAFT_gen/train.py", line 163, in train
+    for i_batch, data_blob in enumerate(train_loader):
+                              ~~~~~~~~~^^^^^^^^^^^^^^
+  File "/mnt/ssd1/30k_kuz/RAFT_gen/.venv/lib/python3.14/site-packages/torch/utils/data/dataloader.py", line 725, in __next__
+    data = self._next_data()
+  File "/mnt/ssd1/30k_kuz/RAFT_gen/.venv/lib/python3.14/site-packages/torch/utils/data/dataloader.py", line 1529, in _next_data
+    return self._process_data(data, worker_id)
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd1/30k_kuz/RAFT_gen/.venv/lib/python3.14/site-packages/torch/utils/data/dataloader.py", line 1567, in _process_data
+    data.reraise()
+    ~~~~~~~~~~~~^^
+  File "/mnt/ssd1/30k_kuz/RAFT_gen/.venv/lib/python3.14/site-packages/torch/_utils.py", line 794, in reraise
+    raise exception
+
+TypeError: Caught TypeError in DataLoader worker process 0.
+Original Traceback (most recent call last):
+  File "/mnt/ssd1/30k_kuz/RAFT_gen/.venv/lib/python3.14/site-packages/torch/utils/data/_utils/worker.py", line 374, in _worker_loop
+    data = fetcher.fetch(index)  # type: ignore[possibly-undefined]
+  File "/mnt/ssd1/30k_kuz/RAFT_gen/.venv/lib/python3.14/site-packages/torch/utils/data/_utils/fetch.py", line 54, in fetch
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+            ~~~~~~~~~~~~^^^^^
+  File "/mnt/ssd1/30k_kuz/RAFT_gen/core/datasets.py", line 59, in __getitem__
+    flow = frame_utils.read_gen(self.flow_list[index])
+  File "/mnt/ssd1/30k_kuz/RAFT_gen/core/utils/frame_utils.py", line 130, in read_gen
+    return readFlow(file_name).astype(np.float32)
+  File "/mnt/ssd1/30k_kuz/RAFT_gen/core/utils/frame_utils.py", line 28, in readFlow
+    data = np.fromfile(f, np.float32, count=2*int(w)*int(h))
+                                                 ~^^^
+TypeError: only 0-dimensional arrays can be converted to Python scalars
