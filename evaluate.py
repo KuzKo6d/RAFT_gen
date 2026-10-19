@@ -72,18 +72,20 @@ def create_kitti_submission(model, iters=24, output_path='kitti_submission'):
 
 
 @torch.no_grad()
-def validate_chairs(model, iters=24):
+def validate_chairs(model, iters=24, image_callback=None):
     """ Perform evaluation on the FlyingChairs (test) split """
     model.eval()
     epe_list = []
 
     val_dataset = datasets.FlyingChairs(split='validation')
     for val_id in range(len(val_dataset)):
-        image1, image2, flow_gt, _ = val_dataset[val_id]
+        image1, image2, flow_gt, valid_gt = val_dataset[val_id]
         image1 = image1[None].cuda()
         image2 = image2[None].cuda()
 
         _, flow_pr = model(image1, image2, iters=iters, test_mode=True)
+        if image_callback is not None:
+            image_callback('chairs', val_id, image1[0], image2[0], flow_gt, flow_pr[0], valid_gt)
         epe = torch.sum((flow_pr[0].cpu() - flow_gt)**2, dim=0).sqrt()
         epe_list.append(epe.view(-1).numpy())
 
@@ -93,7 +95,7 @@ def validate_chairs(model, iters=24):
 
 
 @torch.no_grad()
-def validate_sintel(model, iters=32):
+def validate_sintel(model, iters=32, image_callback=None):
     """ Peform validation using the Sintel (train) split """
     model.eval()
     results = {}
@@ -102,7 +104,7 @@ def validate_sintel(model, iters=32):
         epe_list = []
 
         for val_id in range(len(val_dataset)):
-            image1, image2, flow_gt, _ = val_dataset[val_id]
+            image1, image2, flow_gt, valid_gt = val_dataset[val_id]
             image1 = image1[None].cuda()
             image2 = image2[None].cuda()
 
@@ -111,6 +113,9 @@ def validate_sintel(model, iters=32):
 
             flow_low, flow_pr = model(image1, image2, iters=iters, test_mode=True)
             flow = padder.unpad(flow_pr[0]).cpu()
+            if image_callback is not None:
+                image_callback('sintel/' + dstype, val_id,
+                    padder.unpad(image1[0]), padder.unpad(image2[0]), flow_gt, flow, valid_gt)
 
             epe = torch.sum((flow - flow_gt)**2, dim=0).sqrt()
             epe_list.append(epe.view(-1).numpy())
@@ -128,7 +133,7 @@ def validate_sintel(model, iters=32):
 
 
 @torch.no_grad()
-def validate_kitti(model, iters=24):
+def validate_kitti(model, iters=24, image_callback=None):
     """ Peform validation using the KITTI-2015 (train) split """
     model.eval()
     val_dataset = datasets.KITTI(split='training')
@@ -144,6 +149,9 @@ def validate_kitti(model, iters=24):
 
         flow_low, flow_pr = model(image1, image2, iters=iters, test_mode=True)
         flow = padder.unpad(flow_pr[0]).cpu()
+        if image_callback is not None:
+            image_callback('kitti', val_id,
+                padder.unpad(image1[0]), padder.unpad(image2[0]), flow_gt, flow, valid_gt)
 
         epe = torch.sum((flow - flow_gt)**2, dim=0).sqrt()
         mag = torch.sum(flow_gt**2, dim=0).sqrt()

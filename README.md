@@ -80,12 +80,21 @@ Images are logged under `train/examples/<sample>/` on step 1 and every 1000
 steps, for up to two samples from the current training batch. They include both
 input frames, ground-truth flow, predicted flow, and the effective loss mask
 (including the maximum-flow cutoff). GT and prediction share a color scale;
-excluded pixels are black. Samples can change between logging steps.
+excluded GT pixels are black, while predictions are shown over the full image.
+Samples can change between logging steps.
+
+Each validation pass also logs the first two samples per dataset under
+`val/<dataset>/examples/<sample>/`, with separate groups for `sintel/clean` and
+`sintel/final`. These include the same images and use the dataset validity mask
+without the training maximum-flow cutoff. Predictions come from the validation
+forward pass, with padding removed.
 
 Use `--log_dir runs/my-experiment` to select the event directory,
 `--image_log_freq 500` to change the image interval, and `--image_log_count 1`
-to change the number of samples. Set either image option to `0` to disable
-images. Without `--log_dir`, TensorBoard creates a new directory under `runs/`.
+to change the number of samples for both training and validation. Validation
+images follow the validation schedule, independently of the training image
+interval. Set either image option to `0` to disable all images.
+Without `--log_dir`, TensorBoard creates a new directory under `runs/`.
 To view the logs, run `tensorboard --logdir runs`.
 
 ## (Optional) Efficent Implementation

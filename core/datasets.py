@@ -210,7 +210,7 @@ class FlyingThings2D(FlowDataset):
 
         image_root = osp.join(root, 'rgb')
         flow_root = osp.join(image_root, 'gt')
-        mask_root = osp.join(root, 'mask')
+        mask_root = osp.join(root, 'mesh_mask')
 
         images = {}
         for image_path in glob(osp.join(image_root, '*.png')):

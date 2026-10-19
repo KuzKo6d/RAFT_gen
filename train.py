@@ -137,28 +137,39 @@ class Logger:
             return
         if self.total_steps != 1 and self.total_steps % self.image_log_freq != 0:
             return
+        self._write_images(image1, image2, flow_gt, flow_pred, valid,
+            prefix='train', max_flow=MAX_FLOW)
 
-        count = min(self.image_log_count, image1.shape[0])
+    def write_validation_images(self, dataset, sample_index, image1, image2, flow_gt, flow_pred, valid):
+        """Log the first samples of each validation dataset on every validation pass."""
+        if self.image_log_freq == 0 or sample_index >= self.image_log_count:
+            return
+        self._write_images(image1[None], image2[None], flow_gt[None], flow_pred[None], valid[None],
+            prefix='val/' + dataset, sample_offset=sample_index)
+
+    def _write_images(self, image1, image2, flow_gt, flow_pred, valid,
+                      prefix, sample_offset=0, max_flow=None):
+        count = min(self.image_log_count - sample_offset, image1.shape[0])
         image1 = image1[:count].detach().clamp(0, 255).to(torch.uint8).cpu()
         image2 = image2[:count].detach().clamp(0, 255).to(torch.uint8).cpu()
         flow_gt = flow_gt[:count].detach().float().permute(0, 2, 3, 1).cpu().numpy()
         flow_pred = flow_pred[:count].detach().float().permute(0, 2, 3, 1).cpu().numpy()
         valid = valid[:count].detach().cpu().numpy() >= 0.5
-        valid &= np.linalg.norm(flow_gt, axis=-1) < MAX_FLOW
+        if max_flow is not None:
+            valid &= np.linalg.norm(flow_gt, axis=-1) < max_flow
 
         for i in range(count):
-            tag = 'train/examples/%d/' % i
+            tag = '%s/examples/%d/' % (prefix, sample_offset + i)
             self.writer.add_image(tag + 'image1', image1[i], self.total_steps)
             self.writer.add_image(tag + 'image2', image2[i], self.total_steps)
 
             # One conversion gives GT and prediction the same color scale.
             gt = np.where(valid[i, :, :, None], flow_gt[i], 0)
-            pred = np.where(valid[i, :, :, None], flow_pred[i], 0)
+            pred = flow_pred[i]
             width = gt.shape[1]
             flow_rgb = flow_viz.flow_to_image(np.concatenate([gt, pred], axis=1))
             gt_rgb, pred_rgb = flow_rgb[:, :width].copy(), flow_rgb[:, width:].copy()
             gt_rgb[~valid[i]] = 0
-            pred_rgb[~valid[i]] = 0
             self.writer.add_image(tag + 'flow_gt', gt_rgb, self.total_steps, dataformats='HWC')
             self.writer.add_image(tag + 'flow_pred', pred_rgb, self.total_steps, dataformats='HWC')
             self.writer.add_image(tag + 'valid', valid[i].astype(np.float32), self.total_steps, dataformats='HW')
@@ -229,11 +240,14 @@ def train(args):
                 results = {}
                 for val_dataset in args.validation:
                     if val_dataset == 'chairs':
-                        results.update(evaluate.validate_chairs(model.module))
+                        results.update(evaluate.validate_chairs(model.module,
+                            image_callback=logger.write_validation_images))
                     elif val_dataset == 'sintel':
-                        results.update(evaluate.validate_sintel(model.module))
+                        results.update(evaluate.validate_sintel(model.module,
+                            image_callback=logger.write_validation_images))
                     elif val_dataset == 'kitti':
-                        results.update(evaluate.validate_kitti(model.module))
+                        results.update(evaluate.validate_kitti(model.module,
+                            image_callback=logger.write_validation_images))
 
                 logger.write_dict(results)
                 
