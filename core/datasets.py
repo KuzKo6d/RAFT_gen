@@ -29,6 +29,7 @@ class FlowDataset(data.Dataset):
         self.is_test = False
         self.init_seed = False
         self.flow_list = []
+        self.mask_list = []
         self.image_list = []
         self.extra_info = []
 
@@ -58,10 +59,16 @@ class FlowDataset(data.Dataset):
         else:
             flow = frame_utils.read_gen(self.flow_list[index])
 
+        flow = np.array(flow).astype(np.float32)
+        if self.mask_list:
+            # Binary PNG masks may use either 0/1 or 0/255.
+            valid = np.array(frame_utils.read_gen(self.mask_list[index]).convert('L'))
+            if valid.shape != flow.shape[:2]:
+                raise ValueError('Mask and flow shapes differ: %s' % self.mask_list[index])
+            valid = (valid > 0).astype(np.uint8)
+
         img1 = frame_utils.read_gen(self.image_list[index][0])
         img2 = frame_utils.read_gen(self.image_list[index][1])
-
-        flow = np.array(flow).astype(np.float32)
         img1 = np.array(img1).astype(np.uint8)
         img2 = np.array(img2).astype(np.uint8)
 
@@ -74,10 +81,7 @@ class FlowDataset(data.Dataset):
             img2 = img2[..., :3]
 
         if self.augmentor is not None:
-            if self.sparse:
-                img1, img2, flow, valid = self.augmentor(img1, img2, flow, valid)
-            else:
-                img1, img2, flow = self.augmentor(img1, img2, flow)
+            img1, img2, flow, valid = self.augmentor(img1, img2, flow, valid)
 
         img1 = torch.from_numpy(img1).permute(2, 0, 1).float()
         img2 = torch.from_numpy(img2).permute(2, 0, 1).float()
@@ -93,6 +97,7 @@ class FlowDataset(data.Dataset):
 
     def __rmul__(self, v):
         self.flow_list = v * self.flow_list
+        self.mask_list = v * self.mask_list
         self.image_list = v * self.image_list
         return self
         
@@ -197,12 +202,15 @@ class HD1K(FlowDataset):
             seq_ix += 1
 
 
-class Generator(FlowDataset):
-    def __init__(self, aug_params=None, split='training', root='../datasets/generator_beta'):
-        super(Generator, self).__init__(aug_params)
+class FlyingThings2D(FlowDataset):
+    """Dense flow in rgb/gt/<pair>.flo with validity in mask/<pair>.png (nonzero = valid)."""
+
+    def __init__(self, aug_params=None, split='training', root='../datasets/flyingthings2d/960x540'):
+        super(FlyingThings2D, self).__init__(aug_params)
 
         image_root = osp.join(root, 'rgb')
         flow_root = osp.join(image_root, 'gt')
+        mask_root = osp.join(root, 'mask')
 
         images = {}
         for image_path in glob(osp.join(image_root, '*.png')):
@@ -210,6 +218,10 @@ class Generator(FlowDataset):
 
         flows = sorted(glob(osp.join(flow_root, '*.flo')))
         missing_images = []
+
+        masks = {}
+        for mask_path in glob(osp.join(mask_root, '*.png')):
+            masks[osp.splitext(osp.basename(mask_path))[0]] = mask_path
 
         for flow_path in flows:
             stem = osp.splitext(osp.basename(flow_path))[0]
@@ -223,24 +235,28 @@ class Generator(FlowDataset):
                 missing_images.append(stem)
                 continue
 
+            if stem not in masks:
+                raise FileNotFoundError('Missing validity mask: %s' % osp.join(mask_root, stem + '.png'))
+
             self.flow_list += [flow_path]
+            self.mask_list += [masks[stem]]
             self.image_list += [[images[stem], images[reverse_stem]]]
 
         if len(self.image_list) == 0:
-            raise RuntimeError('No Generator samples found in %s' % root)
+            raise RuntimeError('No FlyingThings2D samples found in %s' % root)
 
         if missing_images:
-            print('Generator: skipped %d flow files without matching rgb pair' % len(missing_images))
+            print('FlyingThings2D: skipped %d flow files without matching rgb pair' % len(missing_images))
 
 
 def fetch_dataloader(args, TRAIN_DS='C+T+K+S+H'):
     """ Create the data loader for the corresponding trainign set """
 
-    if args.stage == 'generator':
+    if args.stage == 'things2d':
         aug_params = {'crop_size': args.image_size, 'min_scale': -0.4, 'max_scale': 0.8, 'do_flip': True}
-        train_dataset = Generator(aug_params)
+        train_dataset = FlyingThings2D(aug_params)
 
-    if args.stage == 'chairs':
+    elif args.stage == 'chairs':
         aug_params = {'crop_size': args.image_size, 'min_scale': -0.1, 'max_scale': 1.0, 'do_flip': True}
         train_dataset = FlyingChairs(aug_params, split='training')
     
