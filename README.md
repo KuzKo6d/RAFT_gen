@@ -72,6 +72,22 @@ If you have a RTX GPU, training can be accelerated using mixed precision. You ca
 ./train_mixed.sh
 ```
 
+TensorBoard scalars are grouped under `train/` (loss, EPE, pixel thresholds),
+`val/` (validation metrics), and `optimizer/` (learning rate). Training scalars
+are averaged over 100 steps; the final partial interval is also saved.
+
+Images are logged under `train/examples/<sample>/` on step 1 and every 1000
+steps, for up to two samples from the current training batch. They include both
+input frames, ground-truth flow, predicted flow, and the effective loss mask
+(including the maximum-flow cutoff). GT and prediction share a color scale;
+excluded pixels are black. Samples can change between logging steps.
+
+Use `--log_dir runs/my-experiment` to select the event directory,
+`--image_log_freq 500` to change the image interval, and `--image_log_count 1`
+to change the number of samples. Set either image option to `0` to disable
+images. Without `--log_dir`, TensorBoard creates a new directory under `runs/`.
+To view the logs, run `tensorboard --logdir runs`.
+
 ## (Optional) Efficent Implementation
 You can optionally use our alternate (efficent) implementation by compiling the provided cuda extension
 ```Shell

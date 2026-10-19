@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 from raft import RAFT
 import evaluate
 import datasets
+from utils import flow_viz
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -87,30 +88,35 @@ def fetch_optimizer(args, model):
     
 
 class Logger:
-    def __init__(self, model, scheduler):
+    def __init__(self, model, scheduler, log_dir=None, image_log_freq=1000, image_log_count=2):
+        if image_log_freq < 0 or image_log_count < 0:
+            raise ValueError('Image logging frequency and count must be nonnegative')
         self.model = model
         self.scheduler = scheduler
         self.total_steps = 0
         self.running_loss = {}
-        self.writer = None
+        self.running_count = 0
+        self.image_log_freq = image_log_freq
+        self.image_log_count = image_log_count
+        self.writer = SummaryWriter(log_dir=log_dir)
 
     def _print_training_status(self):
-        metrics_data = [self.running_loss[k]/SUM_FREQ for k in sorted(self.running_loss.keys())]
-        training_str = "[{:6d}, {:10.7f}] ".format(self.total_steps+1, self.scheduler.get_last_lr()[0])
+        metrics_data = [self.running_loss[k]/self.running_count for k in sorted(self.running_loss.keys())]
+        training_str = "[{:6d}, {:10.7f}] ".format(self.total_steps, self.scheduler.get_last_lr()[0])
         metrics_str = ("{:10.4f}, "*len(metrics_data)).format(*metrics_data)
         
         # print the training status
         print(training_str + metrics_str)
 
-        if self.writer is None:
-            self.writer = SummaryWriter()
-
         for k in self.running_loss:
-            self.writer.add_scalar(k, self.running_loss[k]/SUM_FREQ, self.total_steps)
-            self.running_loss[k] = 0.0
+            self.writer.add_scalar('train/' + k, self.running_loss[k]/self.running_count, self.total_steps)
+        self.writer.add_scalar('optimizer/lr', self.scheduler.get_last_lr()[0], self.total_steps)
+        self.running_loss = {}
+        self.running_count = 0
 
     def push(self, metrics):
         self.total_steps += 1
+        self.running_count += 1
 
         for key in metrics:
             if key not in self.running_loss:
@@ -118,18 +124,48 @@ class Logger:
 
             self.running_loss[key] += metrics[key]
 
-        if self.total_steps % SUM_FREQ == SUM_FREQ-1:
+        if self.total_steps % SUM_FREQ == 0:
             self._print_training_status()
-            self.running_loss = {}
 
     def write_dict(self, results):
-        if self.writer is None:
-            self.writer = SummaryWriter()
-
         for key in results:
-            self.writer.add_scalar(key, results[key], self.total_steps)
+            self.writer.add_scalar('val/' + key, results[key], self.total_steps)
+
+    def write_images(self, image1, image2, flow_gt, flow_pred, valid):
+        """Log current training samples on step 1 and at the configured interval."""
+        if self.image_log_freq == 0 or self.image_log_count == 0:
+            return
+        if self.total_steps != 1 and self.total_steps % self.image_log_freq != 0:
+            return
+
+        count = min(self.image_log_count, image1.shape[0])
+        image1 = image1[:count].detach().clamp(0, 255).to(torch.uint8).cpu()
+        image2 = image2[:count].detach().clamp(0, 255).to(torch.uint8).cpu()
+        flow_gt = flow_gt[:count].detach().float().permute(0, 2, 3, 1).cpu().numpy()
+        flow_pred = flow_pred[:count].detach().float().permute(0, 2, 3, 1).cpu().numpy()
+        valid = valid[:count].detach().cpu().numpy() >= 0.5
+        valid &= np.linalg.norm(flow_gt, axis=-1) < MAX_FLOW
+
+        for i in range(count):
+            tag = 'train/examples/%d/' % i
+            self.writer.add_image(tag + 'image1', image1[i], self.total_steps)
+            self.writer.add_image(tag + 'image2', image2[i], self.total_steps)
+
+            # One conversion gives GT and prediction the same color scale.
+            gt = np.where(valid[i, :, :, None], flow_gt[i], 0)
+            pred = np.where(valid[i, :, :, None], flow_pred[i], 0)
+            width = gt.shape[1]
+            flow_rgb = flow_viz.flow_to_image(np.concatenate([gt, pred], axis=1))
+            gt_rgb, pred_rgb = flow_rgb[:, :width].copy(), flow_rgb[:, width:].copy()
+            gt_rgb[~valid[i]] = 0
+            pred_rgb[~valid[i]] = 0
+            self.writer.add_image(tag + 'flow_gt', gt_rgb, self.total_steps, dataformats='HWC')
+            self.writer.add_image(tag + 'flow_pred', pred_rgb, self.total_steps, dataformats='HWC')
+            self.writer.add_image(tag + 'valid', valid[i].astype(np.float32), self.total_steps, dataformats='HW')
 
     def close(self):
+        if self.running_count:
+            self._print_training_status()
         self.writer.close()
 
 
@@ -152,7 +188,9 @@ def train(args):
 
     total_steps = 0
     scaler = GradScaler(enabled=args.mixed_precision)
-    logger = Logger(model, scheduler)
+    logger = Logger(model, scheduler, log_dir=args.log_dir,
+        image_log_freq=args.image_log_freq, image_log_count=args.image_log_count)
+    print('TensorBoard logs: %s' % logger.writer.log_dir)
 
     VAL_FREQ = 5000
     add_noise = True
@@ -180,7 +218,9 @@ def train(args):
             scheduler.step()
             scaler.update()
 
+            metrics['loss'] = loss.detach().item()
             logger.push(metrics)
+            logger.write_images(image1, image2, flow, flow_predictions[-1], valid)
 
             if total_steps % VAL_FREQ == VAL_FREQ - 1:
                 PATH = 'checkpoints/%d_%s.pth' % (total_steps+1, args.name)
@@ -221,6 +261,9 @@ if __name__ == '__main__':
     parser.add_argument('--restore_ckpt', help="restore checkpoint")
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--validation', type=str, nargs='+')
+    parser.add_argument('--log_dir', default=None, help='TensorBoard directory (default: automatic subdirectory of runs/)')
+    parser.add_argument('--image_log_freq', type=int, default=1000, help='log training images every N steps, also on step 1 (0 disables)')
+    parser.add_argument('--image_log_count', type=int, default=2, help='maximum training samples to visualize per batch (0 disables)')
 
     parser.add_argument('--lr', type=float, default=0.00002)
     parser.add_argument('--num_steps', type=int, default=100000)
