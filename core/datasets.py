@@ -136,7 +136,7 @@ class FlyingChairs(FlowDataset):
 
 
 class FlyingThings3D(FlowDataset):
-    def __init__(self, aug_params=None, root='datasets/FlyingThings3D', dstype='frames_cleanpass'):
+    def __init__(self, aug_params=None, root='/mnt/hdd1/28v_bar/flow_datasets/FlyingThings3D', dstype='frames_cleanpass'):
         super(FlyingThings3D, self).__init__(aug_params)
 
         for cam in ['left']:
@@ -160,7 +160,7 @@ class FlyingThings3D(FlowDataset):
       
 
 class KITTI(FlowDataset):
-    def __init__(self, aug_params=None, split='training', root='datasets/KITTI'):
+    def __init__(self, aug_params=None, split='training', root='../datasets/KITTI'):
         super(KITTI, self).__init__(aug_params, sparse=True)
         if split == 'testing':
             self.is_test = True
