@@ -7,7 +7,6 @@ import os
 import cv2
 import time
 import numpy as np
-import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
@@ -203,8 +202,8 @@ def train(args):
         image_log_freq=args.image_log_freq, image_log_count=args.image_log_count)
     print('TensorBoard logs: %s' % logger.writer.log_dir)
 
-    VAL_FREQ = 5000
-    add_noise = True
+    if args.val_freq < 1:
+        raise ValueError("val_freq must be positive")
 
     should_keep_training = True
     while should_keep_training:
@@ -226,14 +225,18 @@ def train(args):
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
             
             scaler.step(optimizer)
-            scheduler.step()
+            previous_scale = scaler.get_scale()
             scaler.update()
+            if scaler.get_scale() < previous_scale:
+                # AMP skipped this update because gradients overflowed.
+                continue
+            scheduler.step()
 
             metrics['loss'] = loss.detach().item()
             logger.push(metrics)
             logger.write_images(image1, image2, flow, flow_predictions[-1], valid)
 
-            if total_steps % VAL_FREQ == VAL_FREQ - 1:
+            if (total_steps + 1) % args.val_freq == 0:
                 PATH = 'checkpoints/%d_%s.pth' % (total_steps+1, args.name)
                 torch.save(model.state_dict(), PATH)
 
@@ -257,7 +260,7 @@ def train(args):
             
             total_steps += 1
 
-            if total_steps > args.num_steps:
+            if total_steps >= args.num_steps:
                 should_keep_training = False
                 break
 
@@ -271,10 +274,13 @@ def train(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--name', default='raft', help="name your experiment")
+    parser.add_argument('--things2d_root', default='../datasets/flyingthings2d_all_sources/960x540')
+    parser.add_argument('--things2d_mask', choices=['mesh_mask', 'mask'], default='mesh_mask')
+    parser.add_argument('--val_freq', type=int, default=5000)
     parser.add_argument('--stage', help="determines which dataset to use for training") 
     parser.add_argument('--restore_ckpt', help="restore checkpoint")
     parser.add_argument('--small', action='store_true', help='use small model')
-    parser.add_argument('--validation', type=str, nargs='+')
+    parser.add_argument('--validation', type=str, nargs='+', default=[])
     parser.add_argument('--log_dir', default=None, help='TensorBoard directory (default: automatic subdirectory of runs/)')
     parser.add_argument('--image_log_freq', type=int, default=1000, help='log training images every N steps, also on step 1 (0 disables)')
     parser.add_argument('--image_log_count', type=int, default=2, help='maximum training samples to visualize per batch (0 disables)')

@@ -28,7 +28,9 @@ def readFlow(fn):
             data = np.fromfile(f, np.float32, count=2*w*h)
             # Reshape data into 3D array (columns, rows, bands)
             # The reshape here is for visualization, the original code is (w,h,2)
-            return np.resize(data, (h, w, 2))
+            if data.size != 2*w*h:
+                raise ValueError("Truncated flow file: %s" % fn)
+            return data.reshape(h, w, 2)
 
 def readPFM(file):
     file = open(file, 'rb')

@@ -203,20 +203,32 @@ class HD1K(FlowDataset):
 
 
 class FlyingThings2D(FlowDataset):
-    """Dense flow in rgb/gt/<pair>.flo with validity in mask/<pair>.png (nonzero = valid)."""
+    """Dense flow in rgb/gt/<pair>.flo with a selectable binary supervision mask."""
 
-    def __init__(self, aug_params=None, split='training', root='../datasets/flyingthings2d/960x540'):
+    def __init__(self, aug_params=None, split='training', root='../datasets/flyingthings2d_all_sources/960x540', mask_dir='mesh_mask'):
         super(FlyingThings2D, self).__init__(aug_params)
 
         image_root = osp.join(root, 'rgb')
         flow_root = osp.join(image_root, 'gt')
-        mask_root = osp.join(root, 'mesh_mask')
+        mask_root = osp.join(root, mask_dir)
 
         images = {}
         for image_path in glob(osp.join(image_root, '*.png')):
             images[osp.splitext(osp.basename(image_path))[0]] = image_path
 
         flows = sorted(glob(osp.join(flow_root, '*.flo')))
+        marker_root = osp.join(root, 'samples')
+        if osp.isdir(marker_root):
+            # The generator writes this marker after both directions are complete.
+            flows = []
+            for marker in sorted(glob(osp.join(marker_root, '*.json'))):
+                index = int(osp.splitext(osp.basename(marker))[0])
+                a, b = 2 * index, 2 * index + 1
+                for src, dst in ((a, b), (b, a)):
+                    path = osp.join(flow_root, f'{src:06}_{dst:06}.flo')
+                    if not osp.isfile(path):
+                        raise FileNotFoundError(path)
+                    flows.append(path)
         missing_images = []
 
         masks = {}
@@ -232,6 +244,8 @@ class FlyingThings2D(FlowDataset):
 
             reverse_stem = '%s_%s' % (second, first)
             if stem not in images or reverse_stem not in images:
+                if osp.isdir(marker_root):
+                    raise FileNotFoundError(f"Missing RGB pair for {flow_path}")
                 missing_images.append(stem)
                 continue
 
@@ -254,7 +268,7 @@ def fetch_dataloader(args, TRAIN_DS='C+T+K+S+H'):
 
     if args.stage == 'things2d':
         aug_params = {'crop_size': args.image_size, 'min_scale': -0.4, 'max_scale': 0.8, 'do_flip': True}
-        train_dataset = FlyingThings2D(aug_params)
+        train_dataset = FlyingThings2D(aug_params, root=args.things2d_root, mask_dir=args.things2d_mask)
 
     elif args.stage == 'chairs':
         aug_params = {'crop_size': args.image_size, 'min_scale': -0.1, 'max_scale': 1.0, 'do_flip': True}
@@ -283,6 +297,9 @@ def fetch_dataloader(args, TRAIN_DS='C+T+K+S+H'):
     elif args.stage == 'kitti':
         aug_params = {'crop_size': args.image_size, 'min_scale': -0.2, 'max_scale': 0.4, 'do_flip': False}
         train_dataset = KITTI(aug_params, split='training')
+
+    if len(train_dataset) < args.batch_size:
+        raise ValueError('Training dataset is smaller than one full batch')
 
     train_loader = data.DataLoader(train_dataset, batch_size=args.batch_size, 
         pin_memory=False, shuffle=True, num_workers=4, drop_last=True)
